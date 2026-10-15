@@ -1,0 +1,63 @@
+name: release-verify
+
+# After a Production deployment succeeds: prove it serves the deployed commit and passes smoke tests.
+# On failure: open an alert issue with the rollback procedure (docs/rollback.md). Rollback itself is a human decision.
+on:
+  deployment_status:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: Production URL (defaults to repository variable PRODUCTION_URL)
+        required: false
+      sha:
+        description: Commit expected to be live (optional)
+        required: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  verify:
+    # deployment_status runs from the default branch, so this workflow file is trusted code.
+    if: github.event_name == 'workflow_dispatch' || (github.event.deployment_status.state == 'success' && github.event.deployment.environment == 'Production')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PROD_URL: ${{ github.event.inputs.url || vars.PRODUCTION_URL }}
+      EXPECTED_SHA: ${{ github.event.inputs.sha || github.event.deployment.sha }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with: { ref: "${{ env.EXPECTED_SHA || github.sha }}", persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: "22", cache: npm }
+      - run: npm ci --ignore-scripts
+      - name: Verify deployed commit and smoke-test critical routes
+        id: smoke
+        run: |
+          test -n "$PROD_URL" || { echo "::error::Set repository variable PRODUCTION_URL"; exit 1; }
+          sha_flag=""; [ -n "$EXPECTED_SHA" ] && sha_flag="--sha $EXPECTED_SHA"
+          # Vercel needs a moment to alias the new deployment; retry briefly before declaring failure.
+          for i in 1 2 3 4 5; do
+            npx tsx scripts/verify-deployment.ts url --url "$PROD_URL" $sha_flag --smoke .guardian/smoke.yaml && exit 0
+            echo "attempt $i failed; waiting"; sleep 30
+          done
+          exit 1
+      - name: Alert with rollback instructions
+        if: failure()
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        with:
+          script: |
+            const sha = process.env.EXPECTED_SHA || context.sha;
+            await github.rest.issues.create({
+              ...context.repo,
+              title: `Production verification FAILED for ${sha.slice(0, 7)}`,
+              labels: ["incident"],
+              body: [
+                `Post-deployment verification failed for \`${sha}\` at ${process.env.PROD_URL}.`,
+                `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                "",
+                "**Rollback (human decision):** Vercel dashboard -> Deployments -> last good production deployment -> *Instant Rollback*, or `vercel rollback <deployment-url>`.",
+                "Then revert the offending merge on `main` via a PR. See docs/rollback.md.",
+              ].join("\n"),
+            });

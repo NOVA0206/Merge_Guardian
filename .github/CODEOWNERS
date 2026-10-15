@@ -1,0 +1,7 @@
+# Changes to Guardian policy, CI enforcement and security code need an owner's review.
+# Replace @NOVA0206 with your team handles; keep this file in sync with .guardian/risk-policy.yaml approvers.
+/.guardian/            @NOVA0206
+/.github/              @NOVA0206
+/src/policy/           @NOVA0206
+/src/security/         @NOVA0206
+/src/storage/migrations/ @NOVA0206

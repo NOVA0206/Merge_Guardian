@@ -1,0 +1,29 @@
+name: e2e-fullstack
+
+# Production build + real PostgreSQL + Inngest dev server + mock GitHub: webhook -> durable job -> check run -> dashboard.
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-fullstack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: "22", cache: npm }
+      - run: npm ci   # postinstall scripts needed: inngest-cli binary, embedded PostgreSQL
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npx playwright test
+        env: { CI: "true" }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with: { name: e2e-report, path: "playwright-report/\ntest-results/", retention-days: 14, if-no-files-found: ignore }

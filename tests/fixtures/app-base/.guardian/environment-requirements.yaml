@@ -1,0 +1,10 @@
+version: 1
+variables:
+  - name: DATABASE_URL
+    scope: server
+    environments: [development, preview, production]
+    description: Postgres connection string
+  - name: NEXT_PUBLIC_APP_NAME
+    scope: browser
+    environments: [development, preview, production]
+mustMatchAcrossEnvironments: []

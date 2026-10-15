@@ -1,0 +1,19 @@
+version: 1
+framework: nextjs
+runtime: node 20
+packageManager: npm
+reviewed: true
+layers: []
+criticalWorkflows:
+  - id: proposals
+    description: Users list and view proposals
+    paths: ["src/app/api/proposals/**", "src/components/proposals/**"]
+protectedDecisions:
+  - id: guardian-policy
+    description: Guardian policy and CI enforcement change only through reviewed PRs.
+    protectedPaths: [".guardian/**", ".github/workflows/**"]
+  - id: ui-never-imports-db
+    description: UI components must go through the API, never import the data layer directly.
+    forbiddenImport:
+      from: "src/components/**"
+      to: "src/lib/db.ts"

@@ -1,0 +1,16 @@
+version: 1
+routes:
+  - path: /
+    status: 200
+    textIncludes: ["Merge Guardian"]
+    textExcludes: ["Internal Server Error", "stack"]
+  - path: /api/health
+    status: 200
+    jsonFields: [status, version, commit, checks]
+    textExcludes: ["PRIVATE KEY", "postgres://", "postgresql://"]
+  - path: /api/jobs
+    status: 401            # anonymous callers must be rejected
+  - path: /dashboard
+    status: 307            # redirects anonymous users to sign-in
+  - path: /api/github/webhook
+    status: 405            # POST only; proves the route is deployed

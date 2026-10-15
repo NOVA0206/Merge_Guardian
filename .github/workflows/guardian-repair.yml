@@ -1,0 +1,40 @@
+name: guardian-repair
+
+# Independent, isolated verification of Guardian repair branches (guardian/fix-PR-<n>). Patch GENERATION happens inside the
+# Guardian app (secrets never touch untrusted code); this workflow re-checks scope in CI with a read-only token and no secrets.
+# It never merges anything. For all other pull requests it passes immediately (a skipped job would satisfy a required check).
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  repair-scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Not a repair branch
+        if: ${{ !startsWith(github.head_ref, 'guardian/fix-') }}
+        run: echo "Not a Guardian repair branch; nothing to verify."
+      - name: Repair branches must come from this repository
+        if: ${{ startsWith(github.head_ref, 'guardian/fix-') && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          echo "::error::guardian/fix-* branches are only valid when created in this repository."
+          exit 1
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        if: ${{ startsWith(github.head_ref, 'guardian/fix-') && github.event.pull_request.head.repo.full_name == github.repository }}
+        with:
+          # Trusted tooling from the BASE commit; the diff is read with git, repair code is never executed here.
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: ${{ startsWith(github.head_ref, 'guardian/fix-') && github.event.pull_request.head.repo.full_name == github.repository }}
+        with: { node-version: "22", cache: npm }
+      - name: Verify repair scope (no policy, workflow, secret or test-weakening changes)
+        if: ${{ startsWith(github.head_ref, 'guardian/fix-') && github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          npm ci --ignore-scripts
+          git fetch origin "${{ github.event.pull_request.head.sha }}"
+          npx tsx src/cli/index.ts verify-repair --base "${{ github.event.pull_request.base.sha }}" --head "${{ github.event.pull_request.head.sha }}"

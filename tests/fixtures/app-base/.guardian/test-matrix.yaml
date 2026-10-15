@@ -1,0 +1,12 @@
+version: 1
+features:
+  - id: proposals
+    description: Proposal listing
+    critical: true
+    sources: ["src/app/api/proposals/**", "src/components/proposals/**", "src/lib/db.ts"]
+    tests:
+      unit: [tests/proposals.test.ts]
+      contract: [tests/contract/proposals.contract.test.ts]
+      database: [migration-validation]
+      browser: [e2e/proposals.spec.ts]
+      smoke: [/api/proposals]

@@ -1,0 +1,107 @@
+name: quality-gates
+
+# Required status checks (job names are the contract with .guardian/risk-policy.yaml `mandatoryChecks`):
+#   lint, typecheck, unit-tests, build
+# `pull_request` checks out the MERGE result (PR + latest target branch), so these gates validate the combined change.
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-gates-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: npm }
+      - run: npm ci --ignore-scripts
+      - run: npm run lint
+
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: npm }
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: npm }
+      - run: npm ci --ignore-scripts
+      # Unit + integration (store contract on real PostgreSQL via PGlite, webhook, workflow, repair, verification).
+      - run: npm test
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: npm }
+      - run: npm ci --ignore-scripts
+      # No secrets are provided: proves the production build does not depend on runtime configuration.
+      - run: npm run build
+
+  database-migrations:
+    # Applies the real migrations to a real PostgreSQL 16 twice (must be idempotent), then checks RLS is on everywhere.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: npm }
+      - run: npm ci --ignore-scripts
+      - run: npm run db:migrate
+      - name: Second run must be a no-op
+        run: npm run db:migrate | tee /tmp/second.log && grep -q "already up to date" /tmp/second.log
+      - name: Row level security enabled on every application table
+        run: |
+          n=$(psql "$DATABASE_URL" -Atc "select count(*) from pg_tables where schemaname='public' and tablename <> 'schema_migrations' and not rowsecurity")
+          test "$n" = "0"
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: npm }
+      - run: npm ci --ignore-scripts
+      # Production dependencies only: dev-toolchain advisories do not ship to Vercel.
+      - run: npm audit --omit=dev --audit-level=high

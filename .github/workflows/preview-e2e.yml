@@ -1,0 +1,56 @@
+name: preview-e2e
+
+# Required check "preview-e2e": waits for the Vercel preview of EXACTLY this commit, proves the deployment serves that
+# commit, runs smoke tests and the deployment-safe Playwright suite against it. Missing/stale/failed preview => FAIL.
+on:
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+  deployments: read
+
+concurrency:
+  group: preview-e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preview-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Refuse to expose secrets to fork code (fail closed, never skipped)
+        if: github.event.pull_request.head.repo.fork == true
+        run: |
+          echo "::error::Preview tests need the deployment-protection bypass secret, which is not available to fork PRs. A maintainer must push this branch to the base repository."
+          exit 1
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: "22", cache: npm }
+      - run: npm ci --ignore-scripts
+      - run: npx playwright install --with-deps chromium
+      - name: Wait for the preview of this exact commit and smoke-test it
+        id: preview
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GUARDIAN_PREVIEW_BYPASS_TOKEN: ${{ secrets.GUARDIAN_PREVIEW_BYPASS_TOKEN }}
+        run: >
+          npx tsx scripts/verify-deployment.ts preview
+          --repo "${{ github.repository }}"
+          --sha "${{ github.event.pull_request.head.sha || github.sha }}"
+          --smoke .guardian/smoke.yaml
+      - name: Playwright against the preview
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ steps.preview.outputs.url }}
+          GUARDIAN_PREVIEW_BYPASS_TOKEN: ${{ secrets.GUARDIAN_PREVIEW_BYPASS_TOKEN }}
+        run: npx playwright test
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+          if-no-files-found: ignore

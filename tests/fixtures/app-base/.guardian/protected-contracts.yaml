@@ -1,0 +1,11 @@
+version: 1
+apiContracts:
+  - id: proposals-list
+    route: /api/proposals
+    file: src/app/api/proposals/route.ts
+    responseFields: [proposals, total]
+databaseExpectations:
+  - table: proposals
+    columns: [id, title, status]
+sharedSymbols: []
+externalServices: []

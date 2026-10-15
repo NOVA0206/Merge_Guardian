@@ -1,0 +1,11 @@
+version: 1
+modules:
+  - name: ui
+    paths: ["src/components/**"]
+    dependsOn: [lib]
+  - name: api
+    paths: ["src/app/api/**"]
+    dependsOn: [lib]
+  - name: lib
+    paths: ["src/lib/**"]
+    dependsOn: []

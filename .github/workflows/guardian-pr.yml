@@ -1,0 +1,50 @@
+name: guardian-pr
+
+# "Actions mode" for THIS repository (dogfooding). The hosted GitHub App is the primary path; this workflow
+# provides the same analysis without the app, and gates merges through its own job result.
+# Use ONE mode per repository.
+#
+# Security: this uses `pull_request` (never `pull_request_target`). Guardian's own code is checked out from the
+# BASE commit (trusted), and the pull request is analysed through the API, so PR code is never executed here.
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, edited]
+  merge_group:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to analyse (manual debugging)
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+concurrency:
+  group: guardian-pr-${{ github.event.pull_request.number || github.event.inputs.pr_number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guardian:
+    name: guardian
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # Trusted tool code: base commit for PRs, default branch otherwise. Never the PR head.
+          ref: ${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: "22", cache: npm }
+      - run: npm ci --ignore-scripts
+      - name: Analyse pull request
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Forks only get a read-only token: report through the job summary and exit code instead.
+          GUARDIAN_NO_PUBLISH: ${{ github.event.pull_request.head.repo.fork && '1' || '' }}
+        run: |
+          flags="--wait 900"
+          if [ -n "$GUARDIAN_NO_PUBLISH" ]; then flags="$flags --no-publish"; fi
+          npx tsx src/cli/index.ts ci $flags

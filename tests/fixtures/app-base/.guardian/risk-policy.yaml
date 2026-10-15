@@ -1,0 +1,16 @@
+version: 1
+blockingSeverities: [P0, P1]
+mediumRequiresReview: false
+mandatoryChecks: [lint, typecheck, unit-tests, build]
+nonWaivable:
+  categories: [security, auth]
+  ruleIds: []
+severityOverrides: {}
+confidence:
+  minForBlocking: 0.7
+  lowConfidenceCap: P3
+approval:
+  architectureApprovers: [alice-architect]
+  securityApprovers: [sam-security]
+  requiredApprovals: 1
+aiRequired: false
